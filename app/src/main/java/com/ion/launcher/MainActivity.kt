@@ -64,8 +64,10 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -80,52 +82,83 @@ data class AppItem(
     val icon: ImageBitmap
 )
 
-val CATS = listOf("Social", "Work", "Media", "Finance", "Tools", "Games", "Camera", "System", "Other")
+val CATS = listOf(
+    "Social", "Work", "Media", "Finance", "Shopping", "Travel", "Learn",
+    "Health", "Tools", "Games", "Camera", "System", "Other"
+)
 val ACCENTS = listOf(Color(0xFF6EA8FF), Color(0xFFFF6FAE), Color(0xFF3DDBB5), Color(0xFFFFB347), Color(0xFFB388FF))
 val SHAPES: List<Shape> = listOf(RoundedCornerShape(30), CircleShape, RoundedCornerShape(12))
 val FONTS = listOf(FontFamily.SansSerif, FontFamily.Serif, FontFamily.Monospace)
 
+@Suppress("DEPRECATION")
 fun categorize(pkg: String, label: String, info: ApplicationInfo): String {
+    // 1) category declared by the app developer
+    when (info.category) {
+        ApplicationInfo.CATEGORY_GAME -> return "Games"
+        ApplicationInfo.CATEGORY_SOCIAL -> return "Social"
+        ApplicationInfo.CATEGORY_AUDIO, ApplicationInfo.CATEGORY_VIDEO, ApplicationInfo.CATEGORY_NEWS -> return "Media"
+        ApplicationInfo.CATEGORY_IMAGE -> return "Camera"
+        ApplicationInfo.CATEGORY_MAPS -> return "Travel"
+        ApplicationInfo.CATEGORY_PRODUCTIVITY -> return "Work"
+    }
+    if ((info.flags and ApplicationInfo.FLAG_IS_GAME) != 0) return "Games"
+
+    // 2) keywords in the package name or app name
     val k = "$pkg $label".lowercase()
     fun has(vararg w: String) = w.any { k.contains(it) }
     return when {
-        info.category == ApplicationInfo.CATEGORY_GAME || has("game", "games") -> "Games"
-        has("whatsapp", "instagram", "telegram", "facebook", "twitter", "snapchat", "discord",
-            "tiktok", "messenger", "linkedin", "reddit", "signal") -> "Social"
-        has("bank", "wallet", "upi", "finance", "invest", "stock", "crypto", "paytm", "phonepe", "gpay") -> "Finance"
-        has("camera", "gallery", "photos", "video editor", "snapseed") -> "Camera"
-        has("gmail", "mail", "docs", "sheets", "slides", "drive", "calendar", "slack", "teams",
-            "office", "notes", "zoom", "meet", "outlook", "notion", "keep") -> "Work"
-        has("youtube", "music", "spotify", "netflix", "video", "player", "podcast", "prime", "hotstar") -> "Media"
-        has("calculator", "clock", "files", "weather", "translate", "compass", "maps", "browser",
-            "chrome", "flashlight", "recorder", "scanner", "vpn", "firefox") -> "Tools"
-        has("settings", "dialer", "phone", "contacts", "messaging", "mms", "hihonor", "huawei", "honor") ||
-            pkg.startsWith("com.android.") -> "System"
-        else -> when (info.category) {
-            ApplicationInfo.CATEGORY_AUDIO, ApplicationInfo.CATEGORY_VIDEO -> "Media"
-            ApplicationInfo.CATEGORY_IMAGE -> "Camera"
-            ApplicationInfo.CATEGORY_SOCIAL -> "Social"
-            ApplicationInfo.CATEGORY_PRODUCTIVITY, ApplicationInfo.CATEGORY_NEWS -> "Work"
-            ApplicationInfo.CATEGORY_MAPS -> "Tools"
-            else -> "Other"
-        }
+        has("game") -> "Games"
+        has("whatsapp", "instagram", "telegram", "facebook", "twitter", "snapchat", "discord", "tiktok",
+            "messenger", "linkedin", "reddit", "signal", "viber", "threads", "pinterest", "wechat",
+            "tinder", "skype", "bereal", "com.x.") -> "Social"
+        has("bank", "wallet", "bhim", "finance", "invest", "stock", "crypto", "paytm", "phonepe", "gpay",
+            "benefit", "paypal", "binance", "trading", "loan", "money", "insurance", " pay", ".pay") -> "Finance"
+        has("amazon", "noon", "shop", "aliexpress", "temu", "shein", "ebay", "olx", "flipkart", "daraz",
+            "grocery", "talabat", "delivery") -> "Shopping"
+        has("uber", "careem", "bolt", "taxi", "flight", "airline", "booking", "hotel", "tripadvisor",
+            "travel", "airbnb", "skyscanner", "agoda", "maps", "waze", "navigation", "navigator", "food",
+            "restaurant", "zomato", "swiggy", "deliveroo", "transit", "metro") -> "Travel"
+        has("camera", "gallery", "photo", "snapseed", "lightroom", "picsart", "capcut", "inshot",
+            "video editor", "selfie", "beauty", "sticker") -> "Camera"
+        has("gmail", "mail", "docs", "sheets", "slides", "drive", "calendar", "slack", "teams", "office",
+            "notes", "zoom", "meet", "outlook", "notion", "keep", "excel", "powerpoint", " word", ".word",
+            "pdf", "todo", "trello", "asana", "dropbox", "onedrive", "evernote", "wps", "adobe") -> "Work"
+        has("youtube", "music", "spotify", "netflix", "video", "player", "podcast", "prime", "hotstar",
+            "anghami", "shahid", "soundcloud", "radio", "twitch", "vlc", "kodi", "movie", "cinema", "news",
+            "kindle", "audible", "ebook", "wattpad", "reader") -> "Media"
+        has("duolingo", "learn", "coursera", "udemy", "khan", "study", "school", "classroom", "education",
+            "quiz") -> "Learn"
+        has("health", "fitness", "workout", "steps", "sleep", "yoga", "meditat", "calm", "diet", "calorie",
+            "medic", "pharma", "doctor", "hospital") -> "Health"
+        has("calculator", "clock", "files", "weather", "translate", "compass", "browser", "chrome",
+            "flashlight", "torch", "recorder", "scanner", "vpn", "firefox", ".opera.", "brave", "cleaner",
+            "battery", "launcher", "keyboard", "gboard", "swiftkey", "barcode", "backup", "clone",
+            "manager", "speedtest", "wifi", "antivirus", "security", "wallpaper", "theme", "alarm",
+            "timer", "stopwatch", "dictionary", "converter", "ruler", "emoji") -> "Tools"
+        has("settings", "dialer", "phone", "contacts", "messages", "messaging", "mms", "sms", "hihonor",
+            "huawei", "honor", "vending", "play store") -> "System"
+        // 3) anything preinstalled that is still unmatched is System
+        else -> if ((info.flags and ApplicationInfo.FLAG_SYSTEM) != 0) "System" else "Other"
     }
 }
 
-fun loadApps(ctx: Context): List<AppItem> {
+suspend fun loadApps(ctx: Context): List<AppItem> = coroutineScope {
     val pm = ctx.packageManager
     val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-    return pm.queryIntentActivities(intent, 0)
+    pm.queryIntentActivities(intent, 0)
         .filter { it.activityInfo.packageName != ctx.packageName }
-        .map {
-            val ai = it.activityInfo
-            val label = it.loadLabel(pm).toString()
-            AppItem(
-                label, ai.packageName, ai.name,
-                categorize(ai.packageName, label, ai.applicationInfo),
-                it.loadIcon(pm).toBitmap(120, 120).asImageBitmap()
-            )
+        .map { r ->
+            async(Dispatchers.Default) {
+                val ai = r.activityInfo
+                val label = r.loadLabel(pm).toString()
+                AppItem(
+                    label, ai.packageName, ai.name,
+                    categorize(ai.packageName, label, ai.applicationInfo),
+                    r.loadIcon(pm).toBitmap(108, 108).asImageBitmap()
+                )
+            }
         }
+        .awaitAll()
         .sortedBy { it.label.lowercase() }
 }
 
@@ -146,6 +179,12 @@ fun safeStart(ctx: Context, i: Intent) {
     }
 }
 
+fun parseCats(s: String): Map<String, String> =
+    s.split("\n").mapNotNull { l ->
+        val p = l.split("|")
+        if (p.size == 2) p[0] to p[1] else null
+    }.toMap()
+
 // ---------- Saved settings ----------
 
 class Prefs(ctx: Context) {
@@ -155,6 +194,7 @@ class Prefs(ctx: Context) {
     var theme by mutableIntStateOf(sp.getInt("theme", 0)); private set
     var font by mutableIntStateOf(sp.getInt("font", 0)); private set
     var dock by mutableStateOf((sp.getString("dock", "") ?: "").split(",").filter { it.isNotBlank() }); private set
+    var cats by mutableStateOf(parseCats(sp.getString("cats", "") ?: "")); private set
 
     fun set(key: String, v: Int) {
         when (key) {
@@ -169,6 +209,11 @@ class Prefs(ctx: Context) {
     fun togglePin(p: String) {
         dock = if (p in dock) dock - p else (dock + p).takeLast(4)
         sp.edit().putString("dock", dock.joinToString(",")).apply()
+    }
+
+    fun setCat(p: String, c: String?) {
+        cats = if (c == null) cats - p else cats + (p to c)
+        sp.edit().putString("cats", cats.entries.joinToString("\n") { "${it.key}|${it.value}" }).apply()
     }
 }
 
@@ -193,6 +238,20 @@ class MainActivity : ComponentActivity() {
 // ---------- UI ----------
 
 @Composable
+fun ClockBlock(ink: Color, mute: Color, fontIndex: Int) {
+    val ctx = LocalContext.current
+    var now by remember { mutableStateOf(Date()) }
+    LaunchedEffect(Unit) { while (true) { now = Date(); delay(10_000) } }
+    val is24 = DateFormat.is24HourFormat(ctx)
+    val time = SimpleDateFormat(if (is24) "HH:mm" else "h:mm", Locale.getDefault()).format(now)
+    val date = SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(now)
+    Column {
+        Text(time, fontSize = 88.sp, fontWeight = FontWeight.ExtraLight, fontFamily = FONTS[fontIndex], color = ink)
+        Text(date, color = mute, fontSize = 15.sp)
+    }
+}
+
+@Composable
 fun Launcher(prefs: Prefs, homeTick: Int) {
     val ctx = LocalContext.current
     var apps by remember { mutableStateOf(emptyList<AppItem>()) }
@@ -200,10 +259,8 @@ fun Launcher(prefs: Prefs, homeTick: Int) {
     var drawer by remember { mutableStateOf(false) }
     var settings by remember { mutableStateOf(false) }
     var startCat by remember { mutableStateOf("All") }
-    var now by remember { mutableStateOf(Date()) }
 
-    LaunchedEffect(reload) { apps = withContext(Dispatchers.Default) { loadApps(ctx) } }
-    LaunchedEffect(Unit) { while (true) { now = Date(); delay(10_000) } }
+    LaunchedEffect(reload) { apps = loadApps(ctx) }
     LaunchedEffect(homeTick) { drawer = false; settings = false }
     DisposableEffect(Unit) {
         val r = object : BroadcastReceiver() {
@@ -228,15 +285,18 @@ fun Launcher(prefs: Prefs, homeTick: Int) {
     val accent = ACCENTS[prefs.accent]
     val shape = SHAPES[prefs.shape]
 
-    val is24 = DateFormat.is24HourFormat(ctx)
-    val time = remember(now, is24) { SimpleDateFormat(if (is24) "HH:mm" else "h:mm", Locale.getDefault()).format(now) }
-    val date = remember(now) { SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(now) }
-
-    val groups = apps.groupBy { it.cat }
-    val folderCats = CATS.filter { groups[it] != null }.take(6)
-    val defaults = listOf("phone", "dialer", "message", "camera", "chrome")
-        .mapNotNull { k -> apps.find { it.label.lowercase().contains(k) } }.distinct().take(4)
-    val dockApps = prefs.dock.mapNotNull { p -> apps.find { it.pkg == p } }.ifEmpty { defaults }
+    val items = remember(apps, prefs.cats) {
+        apps.map { a -> prefs.cats[a.pkg]?.let { a.copy(cat = it) } ?: a }
+    }
+    val groups = remember(items) { items.groupBy { it.cat } }
+    val folderCats = remember(groups) {
+        groups.entries.filter { it.key != "Other" }.sortedByDescending { it.value.size }.take(6).map { it.key }
+    }
+    val defaults = remember(items) {
+        listOf("phone", "dialer", "message", "camera", "chrome")
+            .mapNotNull { k -> items.find { it.label.lowercase().contains(k) } }.distinct().take(4)
+    }
+    val dockApps = prefs.dock.mapNotNull { p -> items.find { it.pkg == p } }.ifEmpty { defaults }
 
     fun openDrawer(cat: String) { startCat = cat; drawer = true }
 
@@ -262,8 +322,7 @@ fun Launcher(prefs: Prefs, homeTick: Int) {
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
                 Text("⚙", fontSize = 22.sp, color = ink, modifier = Modifier.clickable { settings = true }.padding(8.dp))
             }
-            Text(time, fontSize = 88.sp, fontWeight = FontWeight.ExtraLight, fontFamily = FONTS[prefs.font], color = ink)
-            Text(date, color = mute, fontSize = 15.sp)
+            ClockBlock(ink, mute, prefs.font)
             Spacer(Modifier.height(28.dp))
 
             folderCats.chunked(2).forEach { pair ->
@@ -295,7 +354,7 @@ fun Launcher(prefs: Prefs, homeTick: Int) {
                 Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(32.dp)).background(glass).padding(12.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                dockApps.forEach { a -> AppCell(a, shape, ink, a.pkg in prefs.dock, 56.dp, false, {}) { prefs.togglePin(a.pkg) } }
+                dockApps.forEach { a -> AppCell(a, prefs, shape, ink, 56.dp, false) {} }
             }
         }
 
@@ -304,7 +363,7 @@ fun Launcher(prefs: Prefs, homeTick: Int) {
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut()
         ) {
-            Drawer(apps, prefs, shape, ink, mute, accent, drawerBg, startCat) { drawer = false }
+            Drawer(items, prefs, shape, ink, mute, accent, drawerBg, startCat) { drawer = false }
         }
 
         if (settings) SettingsSheet(prefs, ink, mute, sheetBg, accent) { settings = false }
@@ -312,12 +371,11 @@ fun Launcher(prefs: Prefs, homeTick: Int) {
 }
 
 @Composable
-fun AppCell(
-    a: AppItem, shape: Shape, ink: Color, pinned: Boolean, size: Dp, label: Boolean,
-    onOpen: () -> Unit, onPin: () -> Unit
-) {
+fun AppCell(a: AppItem, prefs: Prefs, shape: Shape, ink: Color, size: Dp, label: Boolean, onOpen: () -> Unit) {
     val ctx = LocalContext.current
     var menu by remember { mutableStateOf(false) }
+    var sub by remember { mutableStateOf(false) }
+    val pinned = a.pkg in prefs.dock
     Column(
         Modifier.combinedClickable(onClick = { launch(ctx, a); onOpen() }, onLongClick = { menu = true }).padding(4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -327,17 +385,27 @@ fun AppCell(
             Text(a.label, color = ink, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 4.dp).widthIn(max = 72.dp))
         }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            DropdownMenuItem(text = { Text(if (pinned) "Remove from dock" else "Pin to dock") },
-                onClick = { menu = false; onPin() })
-            DropdownMenuItem(text = { Text("App info") }, onClick = {
-                menu = false
-                safeStart(ctx, Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${a.pkg}")))
-            })
-            DropdownMenuItem(text = { Text("Uninstall") }, onClick = {
-                menu = false
-                safeStart(ctx, Intent(Intent.ACTION_DELETE, Uri.parse("package:${a.pkg}")))
-            })
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false; sub = false }) {
+            if (!sub) {
+                DropdownMenuItem(text = { Text(if (pinned) "Remove from dock" else "Pin to dock") },
+                    onClick = { menu = false; prefs.togglePin(a.pkg) })
+                DropdownMenuItem(text = { Text("Move to category…") }, onClick = { sub = true })
+                DropdownMenuItem(text = { Text("App info") }, onClick = {
+                    menu = false
+                    safeStart(ctx, Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${a.pkg}")))
+                })
+                DropdownMenuItem(text = { Text("Uninstall") }, onClick = {
+                    menu = false
+                    safeStart(ctx, Intent(Intent.ACTION_DELETE, Uri.parse("package:${a.pkg}")))
+                })
+            } else {
+                CATS.forEach { c ->
+                    DropdownMenuItem(text = { Text(if (c == a.cat) "$c ✓" else c) },
+                        onClick = { menu = false; sub = false; prefs.setCat(a.pkg, c) })
+                }
+                DropdownMenuItem(text = { Text("Auto (reset)") },
+                    onClick = { menu = false; sub = false; prefs.setCat(a.pkg, null) })
+            }
         }
     }
 }
@@ -350,7 +418,7 @@ fun Drawer(
     val ctx = LocalContext.current
     var q by remember { mutableStateOf("") }
     var cat by remember(initialCat) { mutableStateOf(initialCat) }
-    val groups = apps.groupBy { it.cat }
+    val groups = remember(apps) { apps.groupBy { it.cat } }
     val shown: List<Pair<String, List<AppItem>>> =
         if (q.isNotBlank()) listOf("Results" to apps.filter { it.label.contains(q.trim(), true) })
         else CATS.filter { groups[it] != null && (cat == "All" || cat == it) }.map { it to groups[it]!! }
@@ -392,7 +460,7 @@ fun Drawer(
                     Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
                         row.forEach { a ->
                             Box(Modifier.weight(1f), contentAlignment = Alignment.TopCenter) {
-                                AppCell(a, shape, ink, a.pkg in prefs.dock, 56.dp, true, onClose) { prefs.togglePin(a.pkg) }
+                                AppCell(a, prefs, shape, ink, 56.dp, true, onClose)
                             }
                         }
                         repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
