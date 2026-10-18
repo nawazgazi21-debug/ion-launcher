@@ -1,4 +1,4 @@
-plugins {
+7plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
@@ -16,8 +16,8 @@ android {
     }
     buildTypes {
         release {
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             signingConfig = signingConfigs.getByName("debug")
         }
